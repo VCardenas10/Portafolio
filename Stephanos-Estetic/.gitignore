@@ -1,0 +1,5 @@
+venv/
+frontend/node_modules
+frontend/dist
+.env
+sthepanos-59f0ab0a3f58.json

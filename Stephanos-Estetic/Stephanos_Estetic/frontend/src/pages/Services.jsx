@@ -1,0 +1,890 @@
+import { useState, useEffect } from "react";
+import {
+  Clock,
+  DollarSign,
+  Calendar,
+  Check,
+  X,
+  Sparkles,
+  Users,
+  Scissors,
+  Eye,
+  PenTool,
+  Package,
+  Award,
+} from "lucide-react";
+
+// importa todas las imágenes de la carpeta como URLs procesadas por Vite
+const serviceImages = import.meta.glob(
+  "../assets/services/*.{webp,png,jpg,jpeg,svg}",
+  { eager: true, import: "default" }
+);
+
+// util: genera slug consistente a partir del nombre si no tienes service.slug
+function toSlug(text = "") {
+  return String(text)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+}
+
+function getServiceImage(service) {
+  if (!service) return null;
+
+  const baseName =
+    (service.slug && String(service.slug).trim()) ||
+    (service.name && toSlug(service.name)) ||
+    "";
+
+  if (!baseName) return null;
+
+  const candidates = [
+    `../assets/services/${baseName}.webp`,
+    `../assets/services/${baseName}.jpg`,
+    `../assets/services/${baseName}.jpeg`,
+    `../assets/services/${baseName}.png`,
+    `../assets/services/${baseName}.svg`,
+  ];
+  for (const p of candidates) {
+    if (serviceImages[p]) return serviceImages[p];
+  }
+  return null; // fallback a emoji
+}
+
+export default function Services() {
+  const [services, setServices] = useState([]);
+  const [filteredServices, setFilteredServices] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [schedules, setSchedules] = useState([]);
+  const [selectedService, setSelectedService] = useState(null);
+  const [selectedSchedule, setSelectedSchedule] = useState(null);
+
+  const [loading, setLoading] = useState(true);
+
+  // >>> estados de usuario que faltaban antes
+  const [userLoading, setUserLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userError, setUserError] = useState(null);
+
+  const [bookingForm, setBookingForm] = useState({
+    customer_name: "",
+    customer_email: "",
+    customer_phone: "",
+    notes: "",
+  });
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [error, setError] = useState("");
+
+  // NUEVO: aceptación de abono 20%
+  const [acceptDeposit, setAcceptDeposit] = useState(false);
+
+  const categories = [
+    { id: "all", label: "Todos los Servicios", icon: Package },
+    { id: "limpiezas", label: "Limpiezas Faciales", icon: Sparkles },
+    { id: "masajes", label: "Masajes Corporales", icon: Users },
+    { id: "depilacion", label: "Depilación", icon: Scissors },
+    { id: "manicure", label: "Manicure y Pedicure", icon: Award },
+    { id: "cejas", label: "Cejas y Pestañas", icon: Eye },
+    { id: "micropigmentacion", label: "Micropigmentación", icon: PenTool },
+  ];
+
+  useEffect(() => {
+    fetchServices();
+    fetchMe(); // cargar perfil del usuario si hay sesión
+  }, []);
+
+  useEffect(() => {
+    if (selectedCategory === "all") {
+      setFilteredServices(services);
+    } else {
+      setFilteredServices(
+        services.filter(
+          (svc) => guessServiceCategory(svc?.name) === selectedCategory
+        )
+      );
+    }
+  }, [selectedCategory, services]);
+
+  useEffect(() => {
+    if (selectedService) {
+      fetchSchedules(selectedService.id);
+    }
+  }, [selectedService]);
+
+  // NUEVO: resetear aceptación cuando cambia horario o servicio
+  useEffect(() => {
+    setAcceptDeposit(false);
+  }, [selectedSchedule, selectedService]);
+
+  const fetchJSON = async (url) => {
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  };
+
+  const fetchMe = async () => {
+    setUserLoading(true);
+    setUserError(null);
+    try {
+      // OJO: aquí sin la 's'
+      const meRes = await fetch("/api/user/me/", { credentials: "include" });
+      if (!meRes.ok) {
+        setCurrentUser(null);
+        return;
+      }
+
+      const me = await meRes.json();
+      if (!me?.is_authenticated) {
+        setCurrentUser(null);
+        return;
+      }
+
+      // Intentar leer /api/profile/ para nombre y teléfono
+      let profile = null;
+      try {
+        const profRes = await fetch("/api/profile/", {
+          credentials: "include",
+        });
+        if (profRes.ok) {
+          profile = await profRes.json();
+        }
+      } catch (e) {
+        console.warn("No se pudo cargar /api/profile/:", e);
+      }
+
+      const fullName =
+        profile?.full_name ??
+        (`${me.first_name || ""} ${me.last_name || ""}`.trim() || me.username);
+
+      const email = profile?.email ?? me.email ?? "";
+      const phone = profile?.phone ?? "";
+
+      const userObj = {
+        id: me.id,
+        name: fullName,
+        email,
+        phone,
+      };
+
+      setCurrentUser(userObj);
+
+      // Prefill del formulario de reserva (pero editable)
+      setBookingForm((prev) => ({
+        ...prev,
+        customer_name: prev.customer_name || userObj.name || "",
+        customer_email: prev.customer_email || userObj.email || "",
+        customer_phone: prev.customer_phone || userObj.phone || "",
+      }));
+    } catch (e) {
+      console.error("fetchMe error:", e);
+      setUserError("No fue posible cargar tu sesión.");
+      setCurrentUser(null);
+    } finally {
+      setUserLoading(false);
+    }
+  };
+
+  const fetchServices = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchJSON("/api/services/?active=true");
+      setServices(Array.isArray(data) ? data.filter(Boolean) : []);
+    } catch (err) {
+      console.warn("GET /api/services fallback:", err?.message);
+      setServices([
+        {
+          id: "svc1",
+          type: "beauty",
+          name: "Limpieza facial profunda",
+          description:
+            "Renueva y oxigena tu piel con una limpieza profesional.",
+          duration_minutes: 60,
+          price: 24990,
+          active: true,
+        },
+        {
+          id: "svc3",
+          type: "beauty",
+          name: "Peeling químico",
+          description: "Mejora textura y luminosidad de tu piel.",
+          duration_minutes: 45,
+          price: 34990,
+          active: true,
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSchedules = async (serviceId) => {
+    try {
+      // RANGO: hoy -> +14 días
+      const from = new Date();
+      const to = new Date(from);
+      to.setDate(to.getDate() + 14);
+
+      const dateFrom = from.toISOString().slice(0, 10);
+      const dateTo = to.toISOString().slice(0, 10);
+
+      const url = `/api/service_schedules/?service_id=${encodeURIComponent(
+        serviceId
+      )}&is_booked=false&date_from=${dateFrom}&date_to=${dateTo}`;
+
+      const data = await fetchJSON(url);
+
+      const raw = Array.isArray(data) ? data : data?.items ?? [];
+
+      // Normaliza a { id, service_id, date, start_time, is_booked }
+      let normalized = raw.map((s) => {
+        const iso = s.starts_at ?? s.start;
+        const d = new Date(iso);
+        const date = d.toISOString().slice(0, 10);
+        const hh = String(d.getHours()).padStart(2, "0");
+        const mm = String(d.getMinutes()).padStart(2, "0");
+        return {
+          id: s.id,
+          service_id: s.service_id ?? serviceId,
+          date,
+          start_time: `${hh}:${mm}`,
+          is_booked: (s.is_booked ?? s.isBooked) === true,
+        };
+      });
+
+      // Segundo intento opcional si estás probando una fecha fija
+      if (normalized.length === 0) {
+        const forceDate = "2025-10-20";
+        const forceUrl = `/api/service_schedules/?service_id=${encodeURIComponent(
+          serviceId
+        )}&is_booked=false&date_from=${forceDate}`;
+
+        const data2 = await fetchJSON(forceUrl);
+        const raw2 = Array.isArray(data2) ? data2 : data2?.items ?? [];
+        normalized = raw2.map((s) => {
+          const iso = s.starts_at ?? s.start;
+          const d = new Date(iso);
+          const date = d.toISOString().slice(0, 10);
+          const hh = String(d.getHours()).padStart(2, "0");
+          const mm = String(d.getMinutes()).padStart(2, "0");
+          return {
+            id: s.id,
+            service_id: s.service_id ?? serviceId,
+            date,
+            start_time: `${hh}:${mm}`,
+            is_booked: (s.is_booked ?? s.isBooked) === true,
+          };
+        });
+      }
+
+      setSchedules(normalized);
+    } catch (err) {
+      console.error("Error schedules:", err);
+      setSchedules([]);
+    }
+  };
+
+  // util chico para CSRF desde cookie (Django)
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(";").shift();
+    return null;
+  }
+
+  const handleBooking = async (e) => {
+    e.preventDefault();
+    if (!selectedSchedule) return;
+    setError("");
+
+    // Siempre mandamos datos de contacto, haya sesión o no
+    const booking = {
+      service_schedule_id: selectedSchedule.id,
+      customer_name: bookingForm.customer_name || currentUser?.name || "",
+      customer_email: bookingForm.customer_email || currentUser?.email || "",
+      customer_phone: bookingForm.customer_phone || currentUser?.phone || "",
+      notes: bookingForm.notes,
+    };
+
+    try {
+      await fetch("/api/csrf/", { credentials: "include" });
+      const res = await fetch("/api/bookings/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("csrftoken") || "",
+        },
+        body: JSON.stringify(booking),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+
+      if (data?.redirect_url) {
+        window.location.href = data.redirect_url;
+        return;
+      }
+
+      setShowSuccess(true);
+      setBookingForm({
+        customer_name: "",
+        customer_email: "",
+        customer_phone: "",
+        notes: "",
+      });
+      setSelectedSchedule(null);
+      if (selectedService) fetchSchedules(selectedService.id);
+
+      setTimeout(() => {
+        setShowSuccess(false);
+        setSelectedService(null);
+      }, 2500);
+    } catch (err) {
+      console.error("booking error:", err);
+      setError(
+        typeof err?.message === "string"
+          ? err.message
+          : "No se pudo crear la reserva."
+      );
+    }
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString + "T00:00:00");
+    return date.toLocaleDateString("es-CL", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    });
+  };
+
+  const formatTime = (timeString) => {
+    const [hours, minutes] = timeString.split(":");
+    const hour = parseInt(hours, 10);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  const formatCLP = (v) =>
+    typeof v === "number"
+      ? new Intl.NumberFormat("es-CL", {
+          style: "currency",
+          currency: "CLP",
+          maximumFractionDigits: 0,
+        }).format(v)
+      : v;
+
+  // Precio del servicio seleccionado y abono calculado (20%)
+  const selectedServicePrice =
+    typeof selectedService?.price === "number"
+      ? selectedService.price
+      : Number(selectedService?.price) || 0;
+  const deposit = Math.round(selectedServicePrice * 0.2);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-white to-pink-50 py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="text-center mb-12">
+          <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
+            Nuestros{" "}
+            <span className="bg-gradient-to-r from-pink-500 to-pink-600 bg-clip-text text-transparent">
+              Servicios
+            </span>
+          </h1>
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            Reserva tu sesión de belleza personalizada con nuestro equipo de
+            expertos
+          </p>
+        </div>
+
+        {/* Filtros de categorías */}
+        {!selectedService && (
+          <div className="mb-10">
+            <div className="flex flex-wrap justify-center gap-3">
+              {categories.map((category) => {
+                const Icon = category.icon;
+                return (
+                  <button
+                    key={category.id}
+                    onClick={() => setSelectedCategory(category.id)}
+                    className={`flex items-center space-x-2 px-6 py-3 rounded-xl font-semibold transition-all ${
+                      selectedCategory === category.id
+                        ? "bg-gradient-to-r from-pink-500 to-pink-600 text-white shadow-lg scale-105"
+                        : "bg-white text-gray-700 border-2 border-gray-200 hover:border-pink-300 hover:bg-pink-50"
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    <span>{category.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Listado de servicios */}
+        {!selectedService ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {filteredServices.map((service) => (
+              <div
+                key={service.id}
+                className="bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 hover:-translate-y-1 cursor-pointer"
+                onClick={() => setSelectedService(service)}
+              >
+                {/* Imagen */}
+                <div className="h-48 bg-gray-50 flex items-center justify-center relative">
+                  {getServiceImage(service) ? (
+                    <img
+                      src={getServiceImage(service)}
+                      alt={service?.name || "Servicio"}
+                      loading="lazy"
+                      className="absolute inset-0 w-full h-full object-cover"
+                      sizes="(max-width: 768px) 100vw, 33vw"
+                    />
+                  ) : (
+                    <div className="text-6xl">
+                      {service?.type === "coaching" ? "🎯" : "💆‍♀️"}
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-6">
+                  <div className="inline-block px-3 py-1 bg-pink-100 text-pink-600 rounded-full text-xs font-semibold mb-3 uppercase">
+                    {(() => {
+                      const catId = guessServiceCategory(service?.name);
+                      const found = categories.find((c) => c.id === catId);
+                      return found ? found.label : service?.type || "servicio";
+                    })()}
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">
+                    {service?.name}
+                  </h3>
+                  <p className="text-gray-600 mb-4 line-clamp-2">
+                    {service?.description}
+                  </p>
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center text-gray-500">
+                      <Clock className="h-4 w-4 mr-1" />
+                      <span>{service?.duration_minutes} min</span>
+                    </div>
+                    <div className="flex items-center text-pink-600 font-semibold">
+                      <DollarSign className="h-4 w-4" />
+                      <span>
+                        {formatCLP(
+                          typeof service?.price === "number"
+                            ? service.price
+                            : Number(service?.price) || service?.price
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <button className="w-full mt-4 px-4 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all">
+                    Reservar Ahora
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* Detalle del servicio + horarios */
+          <div className="max-w-4xl mx-auto">
+            <button
+              onClick={() => {
+                setSelectedService(null);
+                setSelectedSchedule(null);
+                setAcceptDeposit(false); // reset explícito al volver
+              }}
+              className="mb-6 text-pink-600 hover:text-pink-700 font-semibold flex items-center"
+            >
+              ← Volver a Servicios
+            </button>
+
+            <div className="bg-white rounded-2xl shadow-lg p-8 mb-8">
+              <div className="flex items-start justify-between gap-6 mb-6">
+                <div className="flex-1">
+                  <h2 className="text-3xl font-bold text-gray-900 mb-2">
+                    {selectedService.name}
+                  </h2>
+                  <p className="text-gray-600">{selectedService.description}</p>
+                </div>
+
+                <div className="w-40 h-28 relative rounded-xl overflow-hidden bg-gray-50 shrink-0 flex items-center justify-center">
+                  {getServiceImage(selectedService) ? (
+                    <img
+                      src={getServiceImage(selectedService)}
+                      alt={selectedService.name}
+                      loading="lazy"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-5xl">
+                      {selectedService?.type === "coaching" ? "🎯" : "💆‍♀️"}
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-right">
+                  <div className="text-3xl font-bold text-pink-600">
+                    {formatCLP(
+                      typeof selectedService.price === "number"
+                        ? selectedService.price
+                        : Number(selectedService.price) || selectedService.price
+                    )}
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    {selectedService.duration_minutes} minutos
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Calendario / horarios disponibles */}
+            {!selectedSchedule ? (
+              <div className="bg-white rounded-2xl shadow-lg p-8">
+                <h3 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
+                  <Calendar className="h-6 w-6 mr-2 text-pink-600" />
+                  Horarios Disponibles
+                </h3>
+
+                {schedules.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">
+                    No hay horarios disponibles en este momento. Por favor,
+                    revisa más tarde.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {groupByDate(schedules).map((group) => (
+                      <div
+                        key={group.date}
+                        className="border border-gray-200 rounded-xl p-4"
+                      >
+                        <h4 className="font-semibold text-gray-900 mb-3">
+                          {formatDate(group.date)}
+                        </h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                          {group.slots.map((schedule) => (
+                            <button
+                              key={schedule.id}
+                              onClick={() => setSelectedSchedule(schedule)}
+                              className="px-4 py-3 border-2 border-pink-200 rounded-lg hover:border-pink-500 hover:bg-pink-50 transition-all font-medium text-gray-700 hover:text-pink-600"
+                            >
+                              {formatTime(schedule.start_time)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Formulario de reserva */
+              <div className="bg-white rounded-2xl shadow-lg p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-2xl font-bold text-gray-900">
+                    Completa tu Reserva
+                  </h3>
+                  <button
+                    onClick={() => setSelectedSchedule(null)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+
+                <div className="bg-pink-50 border border-pink-200 rounded-lg p-4 mb-6">
+                  <p className="text-sm text-gray-600 mb-1">
+                    Hora Seleccionada:
+                  </p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatDate(selectedSchedule.date)} a las{" "}
+                    {formatTime(selectedSchedule.start_time)}
+                  </p>
+                </div>
+
+                {/* NUEVO: Aviso y aceptación del abono */}
+                <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 mb-4">
+                  <p className="text-sm text-yellow-900">
+                    <b>Importante:</b> para asegurar tu reserva se cobrará un{" "}
+                    <b>abono del 20%</b> del valor del servicio.
+                  </p>
+                  <p className="text-sm text-yellow-900 mt-1">
+                    Monto del abono: <b>{formatCLP(deposit)}</b>
+                  </p>
+                </div>
+
+                {showSuccess ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
+                    <Check className="h-12 w-12 text-green-600 mx-auto mb-3" />
+                    <h4 className="text-xl font-bold text-green-900 mb-2">
+                      ¡Reserva Confirmada!
+                    </h4>
+                    <p className="text-green-700">
+                      Te enviaremos un correo electrónico de confirmación en
+                      breve.
+                    </p>
+                  </div>
+                ) : (
+                  <form onSubmit={handleBooking} className="space-y-4">
+                    {error && (
+                      <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">
+                        {error}
+                      </div>
+                    )}
+
+                    {userError && (
+                      <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg p-3 text-sm">
+                        {userError}
+                      </div>
+                    )}
+
+                    {/* Checkbox de aceptación del abono */}
+                    <label className="flex items-start gap-2 mb-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4"
+                        checked={acceptDeposit}
+                        onChange={(e) => setAcceptDeposit(e.target.checked)}
+                        required
+                      />
+                      <span className="text-sm text-gray-700">
+                        Acepto el cobro del <b>20%</b> del valor del servicio
+                        como abono para confirmar mi reserva.
+                      </span>
+                    </label>
+
+                    {currentUser ? (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Nombre Completo *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={bookingForm.customer_name}
+                              onChange={(e) =>
+                                setBookingForm((prev) => ({
+                                  ...prev,
+                                  customer_name: e.target.value,
+                                }))
+                              }
+                              placeholder={currentUser.name || "Tu nombre"}
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none transition-all"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Correo Electrónico *
+                            </label>
+                            <input
+                              type="email"
+                              required
+                              value={bookingForm.customer_email}
+                              onChange={(e) =>
+                                setBookingForm((prev) => ({
+                                  ...prev,
+                                  customer_email: e.target.value,
+                                }))
+                              }
+                              placeholder={currentUser.email || "tu@correo.cl"}
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none transition-all"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Teléfono *
+                            </label>
+                            <input
+                              type="tel"
+                              value={bookingForm.customer_phone}
+                              onChange={(e) =>
+                                setBookingForm((prev) => ({
+                                  ...prev,
+                                  customer_phone: e.target.value,
+                                }))
+                              }
+                              placeholder={currentUser.phone || "+56912345678"}
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none transition-all"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Solicitudes Especiales o Notas
+                          </label>
+                          <textarea
+                            rows={4}
+                            value={bookingForm.notes}
+                            onChange={(e) =>
+                              setBookingForm((prev) => ({
+                                ...prev,
+                                notes: e.target.value,
+                              }))
+                            }
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none transition-all resize-none"
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Nombre Completo *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={bookingForm.customer_name}
+                            onChange={(e) =>
+                              setBookingForm({
+                                ...bookingForm,
+                                customer_name: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none transition-all"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Correo Electrónico *
+                          </label>
+                          <input
+                            type="email"
+                            required
+                            value={bookingForm.customer_email}
+                            onChange={(e) =>
+                              setBookingForm({
+                                ...bookingForm,
+                                customer_email: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none transition-all"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Teléfono *
+                          </label>
+                          <input
+                            type="tel"
+                            value={bookingForm.customer_phone}
+                            onChange={(e) =>
+                              setBookingForm({
+                                ...bookingForm,
+                                customer_phone: e.target.value,
+                              })
+                            }
+                            placeholder="+56912345678"
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none transition-all"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Solicitudes Especiales o Notas
+                          </label>
+                          <textarea
+                            rows={4}
+                            value={bookingForm.notes}
+                            onChange={(e) =>
+                              setBookingForm({
+                                ...bookingForm,
+                                notes: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none transition-all resize-none"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={userLoading || !acceptDeposit}
+                      className="w-full px-6 py-4 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {userLoading
+                        ? "Procesando..."
+                        : `Confirmar y pagar abono (${formatCLP(deposit)})`}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* helpers */
+function groupByDate(list = []) {
+  if (!Array.isArray(list)) return [];
+  const acc = {};
+  for (const s of list) {
+    if (!acc[s.date]) acc[s.date] = [];
+    acc[s.date].push(s);
+  }
+  return Object.keys(acc)
+    .sort()
+    .map((date) => ({ date, slots: acc[date] }));
+}
+
+function guessServiceCategory(name = "") {
+  const n = String(name).toLowerCase();
+  if (n.includes("limpieza") || n.includes("peeling") || n.includes("facial"))
+    return "limpiezas";
+  if (
+    n.includes("masaje") ||
+    n.includes("drenaje") ||
+    n.includes("glúteo") ||
+    n.includes("gluteo") ||
+    n.includes("glúteos") ||
+    n.includes("senos")
+  )
+    return "masajes";
+  if (n.includes("depil")) return "depilacion";
+  if (
+    n.includes("uña") ||
+    n.includes("manicure") ||
+    n.includes("pedicure") ||
+    n.includes("polygel") ||
+    n.includes("acrílica") ||
+    n.includes("acrilica")
+  )
+    return "manicure";
+  if (
+    n.includes("ceja") ||
+    n.includes("pestaña") ||
+    n.includes("henna") ||
+    n.includes("barba")
+  )
+    return "cejas";
+  if (n.includes("micro") || n.includes("camuflaje") || n.includes("reconstru"))
+    return "micropigmentacion";
+  return "otros";
+}

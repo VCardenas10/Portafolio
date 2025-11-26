@@ -1,0 +1,144 @@
+
+/* Contenedor Principal */
+.container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 90vh;
+    background-color: #f5f5f5;
+    padding: 2rem;
+    gap: 0rem; /* Aumenta el espaciado entre la imagen y el formulario */
+}
+
+/* Sección de la Imagen */
+.profile__image {
+    flex: 1;
+    max-width: 50%; /* Aumenta el tamaño máximo de la imagen */
+    background: url('../img/bg-profile.png') no-repeat center center / cover;
+    border-radius: 10px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    height: 500px; /* Aumenta la altura */
+}
+
+/* Formulario del Perfil */
+.profile__form-container {
+    flex: 1;
+    max-width: 500px; /* Aumenta el ancho máximo */
+    background: #ffffff;
+    padding: 2.5rem; /* Más espacio interno */
+    border-radius: 12px; /* Bordes más redondeados */
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Título */
+.profile__title {
+    font-size: 2rem; /* Más grande */
+    font-weight: bold;
+    margin-bottom: 1.5rem; /* Más separación */
+}
+
+.profile__title span {
+    color: #007bff;
+}
+
+/* Descripción */
+.profile__description {
+    font-size: 1rem; /* Aumenta ligeramente */
+    color: #666;
+    margin-bottom: 2.5rem;
+}
+
+/* Inputs */
+.profile__inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem; /* Más espacio entre los campos */
+}
+
+.profile__label {
+    font-size: 0.95rem; /* Más grande */
+    font-weight: bold;
+    margin-bottom: 0.6rem;
+    color: #333;
+}
+
+.profile__input {
+    width: 100%;
+    padding: 1rem; /* Aumenta el tamaño de los inputs */
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 1rem;
+    outline: none;
+    transition: border 0.3s ease;
+}
+
+.profile__input:focus {
+    border-color: #007bff;
+}
+
+/* Botones */
+.profile__buttons {
+    display: flex;
+    gap: 1.2rem; /* Más espacio entre botones */
+    margin-top: 1.5rem;
+}
+
+.profile__button {
+    flex: 1;
+    padding: 1rem; /* Más grande */
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #fff;
+    background-color: #007bff;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.profile__button:hover {
+    background-color: #0056b3;
+}
+
+.profile__button-ghost {
+    background: transparent;
+    color: #007bff;
+    border: 1px solid #007bff;
+}
+
+.profile__button-ghost:hover {
+    background-color: #f0f8ff;
+}
+
+/* Botón Eliminar */
+.profile__button-delete {
+    background-color: #ff4d4d; /* Rojo */
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 1rem;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.profile__button-delete:hover {
+    background-color: #e60000; /* Rojo más oscuro al pasar el mouse */
+}
+
+/*MODAL PARA CAMBIO DE CONTRASEÑA*/
+/* Mensaje interactivo */
+.change-password {
+    color: #007bff;
+    cursor: pointer;
+    text-align: center;
+    margin-top: 1rem;
+    font-size: 1rem;
+    font-weight: bold;
+    transition: color 0.3s ease;
+}
+
+.change-password:hover {
+    color: #0056b3;
+}
