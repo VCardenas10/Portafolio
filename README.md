@@ -25,6 +25,7 @@ El desarrollo incluyó:
 - **Arquitectura full stack Django + React**
 
 La plataforma está finalizada y en espera de ser lanzada, según el proceso interno del cliente.
+Video pitch del proyecto: https://www.youtube.com/watch?v=JrVxvOROtJA 
 
 **Tecnologías utilizadas:**  
 `Django (Python)`, `React`, `Google APIs`, `WebPay`, `Figma`.
